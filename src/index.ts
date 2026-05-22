@@ -28,6 +28,9 @@ import { MultiplayerManager } from './multiplayer';
 import { CosmicBowlingManager } from './cosmic';
 import { ReplayManager } from './replay';
 import { BallUnlockManager } from './unlocks';
+import { HazardManager, HazardType } from './hazards';
+import { PowerUpManager, PowerUpType, POWER_UPS } from './powerups';
+import { SettingsManager } from './settings';
 
 // ── Bootstrap ──────────────────────────────────────────────────
 const container = document.getElementById('scene-container') as HTMLDivElement;
@@ -89,6 +92,13 @@ const replay = new ReplayManager();
 world.scene.add(replay.group);
 const ballUnlocks = new BallUnlockManager();
 
+// New round 4 systems
+const hazardManager = new HazardManager(themeColors.primary);
+world.scene.add(hazardManager.group);
+const powerUpManager = new PowerUpManager();
+world.scene.add(powerUpManager.group);
+const settingsManager = new SettingsManager();
+
 // Canvas for browser input
 const canvas = container.querySelector('canvas') as HTMLCanvasElement;
 const xrInput = new XRInputHandler(world);
@@ -113,6 +123,8 @@ let tutorialShownThisSession = false;
 let multiplayerActive = false;
 let cosmicActive = false;
 let replayPlaying = false;
+let hazardActive = false;
+let powerUpsEnabled = true; // Power-ups work in all standard modes
 
 // ── Helper: apply theme ────────────────────────────────────────
 function applyTheme(themeName: string) {
@@ -219,6 +231,30 @@ function handleRollResult(pinsDown: number) {
     if (pinsDown > 0) {
       audio.playPinScatter(pinsDown);
       effects.playPinHitEffect(new Vector3(0, 0.3, LANE.HEADPIN_Z), pinsDown / 10);
+    }
+
+    // Power-up time freeze effect
+    if (powerUpManager.hasTimeFreeze()) {
+      effects.startSlowMotion(2.5, 0.15);
+    }
+
+    // Deactivate any single-roll power-up
+    powerUpManager.deactivate();
+
+    // Roll for power-up drops
+    if (powerUpsEnabled) {
+      const dropPos = new Vector3(0, 0.1, LANE.BALL_RETURN_Z);
+      if (result.isStrike) {
+        if (gameManager.stats.currentStreak >= 5) {
+          powerUpManager.rollDrop('streak_5', dropPos);
+        } else if (gameManager.stats.currentStreak >= 3) {
+          powerUpManager.rollDrop('turkey', dropPos);
+        } else {
+          powerUpManager.rollDrop('strike', dropPos);
+        }
+      } else if (result.isSpare) {
+        powerUpManager.rollDrop('spare', dropPos);
+      }
     }
   });
 
@@ -378,6 +414,14 @@ function endGame() {
     cosmicActive = false;
   }
 
+  if (hazardActive) {
+    hazardManager.clear();
+    hazardActive = false;
+  }
+
+  powerUpManager.reset();
+  ui.hidePowerUpHUD();
+
   // Show game over screen
   hud.hide();
   laneEffects.deactivateSpeedStrips();
@@ -407,9 +451,15 @@ function actualStartGame() {
   gameManager.reset();
   pinManager.resetPins();
   ball.resetToReturn();
+  powerUpManager.reset();
 
   ui.hideAll();
   hud.show();
+
+  // Show power-up HUD for all non-practice modes
+  if (powerUpsEnabled) {
+    ui.showPowerUpHUD([], null);
+  }
 
   audio.init().then(() => {
     audio.startAmbientMusic();
@@ -476,6 +526,10 @@ ui.onQuit = () => {
   multiplayer.stop();
   cosmicActive = false;
   cosmic.stop();
+  hazardActive = false;
+  hazardManager.clear();
+  powerUpManager.reset();
+  ui.hidePowerUpHUD();
   ui.hideMultiplayerScoreboard();
   hud.hide();
   ui.showTitleScreen();
@@ -564,6 +618,45 @@ ballUnlocks.onUnlock((ballType, _condition) => {
 // Update showUnlocks to pass data
 ui.onShowUnlocks = () => {
   ui.showBallUnlocks(ballUnlocks.getUnlockInfo());
+};
+
+// ── Wire up Hazard Bowl ────────────────────────────────────────
+ui.onStartHazardBowl = (presetKey: string) => {
+  hazardActive = true;
+  if (presetKey === 'random') {
+    hazardManager.loadRandom();
+  } else {
+    hazardManager.loadPreset(presetKey);
+  }
+  startGame();
+};
+
+hazardManager.onHazardTriggered = (type: HazardType, _position) => {
+  ui.showHazardTriggerBanner(type);
+  audio.init().then(() => audio.playUIClick());
+};
+
+// ── Wire up Power-ups ──────────────────────────────────────────
+powerUpManager.onPowerUpCollected = (def) => {
+  ui.showPowerUpNotification(def);
+  ui.showPowerUpHUD(powerUpManager.getInventory(), powerUpManager.getActive());
+  effects.playAchievementEffect();
+  audio.init().then(() => audio.playUIClick());
+};
+
+powerUpManager.onPowerUpActivated = (def) => {
+  ui.showPowerUpHUD(powerUpManager.getInventory(), def.type);
+  hud.showMessage(def.icon + ' ' + def.name, def.description, 2000);
+};
+
+powerUpManager.onPowerUpExpired = () => {
+  ui.showPowerUpHUD(powerUpManager.getInventory(), null);
+};
+
+ui.onActivatePowerUp = (type: PowerUpType) => {
+  if (gameManager.state === GameState.AIMING) {
+    powerUpManager.activate(type);
+  }
 };
 
 // ── Wire up challenges ─────────────────────────────────────────
@@ -768,6 +861,42 @@ function gameLoop() {
       }
     }
 
+    // Apply hazard interactions
+    if (hazardActive && hazardManager.active) {
+      const hazResult = hazardManager.processBallPhysics(
+        ball.position, ball.velocity, ball.getRadius(), dt,
+      );
+      if (hazResult.velocityDelta.length() > 0.01) {
+        ball.velocity.add(hazResult.velocityDelta);
+      }
+      if (hazResult.teleportTo) {
+        ball.position.x = hazResult.teleportTo.x;
+        ball.position.z = hazResult.teleportTo.z;
+      }
+    }
+
+    // Apply power-up gutter shield
+    if (powerUpManager.hasGutterShield() && ball.inGutter) {
+      ball.velocity.x *= -0.7;
+      const halfLane = LANE.LANE_WIDTH / 2;
+      ball.position.x = Math.sign(ball.position.x) * (halfLane - 0.01);
+      ball.inGutter = false;
+      ball.state = BallState.ROLLING;
+    }
+
+    // Apply power-up guided ball
+    if (powerUpManager.getActive() === 'guided_ball') {
+      // Gently steer toward pocket (slightly left of center)
+      const pocketX = -0.05;
+      const correction = (pocketX - ball.position.x) * 0.3 * dt;
+      ball.velocity.x += correction;
+    }
+
+    // Apply power-up mega curve
+    if (powerUpManager.getActive() === 'mega_curve') {
+      ball.velocity.x -= 1.2 * dt * Math.sign(ball.velocity.z || -1);
+    }
+
     // Record replay frame
     replay.recordFrame(ball.position, ball.velocity, pinsKnockedThisRoll, ball.inGutter);
 
@@ -786,11 +915,17 @@ function gameLoop() {
 
     // Ball reached pin area — apply collision
     if (ballResult.reachedPins && !waitingForSettle) {
+      // Apply pin magnet effect before impact
+      if (powerUpManager.hasPinMagnet()) {
+        pinManager.pullPinsToward(ball.position, 0.08);
+      }
+
       pinsKnockedThisRoll = pinManager.applyBallImpact(
         ball.position,
         ball.velocity,
         ball.getRadius(),
         ball.ballType.mass,
+        powerUpManager.getPinScatterMultiplier(),
       );
       waitingForSettle = true;
 
@@ -890,6 +1025,10 @@ function gameLoop() {
   laneEffects.update(time, dt);
   neighbors.update(time, dt);
   cosmic.update(time, dt);
+
+  // Update new systems
+  if (hazardActive) hazardManager.update(time, dt);
+  powerUpManager.update(time, dt);
 
   // Update replay if playing
   if (replayPlaying) {

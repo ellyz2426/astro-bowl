@@ -7,6 +7,9 @@ import { BALL_TYPES } from './ball';
 import { THEMES } from './environment';
 import { ChallengeType, CHALLENGES } from './challenges';
 import { CosmicEvent } from './cosmic';
+import { HAZARD_PRESETS, HazardType } from './hazards';
+import { PowerUpDef, PowerUpType, POWER_UPS } from './powerups';
+import { SettingsManager } from './settings';
 
 export class UIManager {
   private overlay: HTMLDivElement;
@@ -28,6 +31,8 @@ export class UIManager {
   onStartCosmicBowling: () => void = () => {};
   onSkipReplay: () => void = () => {};
   onShowUnlocks: () => void = () => {};
+  onStartHazardBowl: (presetKey: string) => void = () => {};
+  onActivatePowerUp: (type: PowerUpType) => void = () => {};
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -428,7 +433,130 @@ export class UIManager {
       <div class="ui-panel" id="ui-ball-unlocks"></div>
       <div class="ui-panel" id="ui-turn-banner"></div>
       <div class="ui-panel" id="ui-replay-prompt"></div>
+      <div class="ui-panel" id="ui-hazard-select"></div>
     `;
+
+    // Add power-up HUD and hazard banner CSS
+    const extraStyle = document.createElement('style');
+    extraStyle.textContent = `
+      ${SettingsManager.getCSS()}
+
+      .powerup-hud {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        display: flex;
+        gap: 8px;
+        z-index: 260;
+        pointer-events: auto;
+      }
+      .powerup-slot {
+        width: 52px;
+        height: 52px;
+        background: rgba(0,8,16,0.85);
+        border: 1px solid rgba(0,255,255,0.3);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: 'Courier New', monospace;
+      }
+      .powerup-slot:hover {
+        border-color: #00ffff;
+        background: rgba(0,255,255,0.1);
+        box-shadow: 0 0 10px rgba(0,255,255,0.3);
+      }
+      .powerup-slot .pu-icon { font-size: 22px; }
+      .powerup-slot .pu-label { font-size: 8px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+      .powerup-slot.active-pu {
+        border-color: #ffd700;
+        box-shadow: 0 0 12px rgba(255,215,0,0.4);
+      }
+      .powerup-slot.empty {
+        opacity: 0.3;
+        cursor: default;
+      }
+      .powerup-slot.empty:hover {
+        border-color: rgba(0,255,255,0.3);
+        background: rgba(0,8,16,0.85);
+        box-shadow: none;
+      }
+
+      .powerup-notification {
+        position: fixed;
+        top: 15%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,8,16,0.92);
+        border: 2px solid rgba(0,255,255,0.5);
+        border-radius: 12px;
+        padding: 14px 32px;
+        text-align: center;
+        z-index: 320;
+        font-family: 'Courier New', monospace;
+        animation: puNotify 2.5s ease-in-out forwards;
+        pointer-events: none;
+      }
+      @keyframes puNotify {
+        0% { transform: translateX(-50%) scale(0.5); opacity: 0; }
+        15% { transform: translateX(-50%) scale(1.1); opacity: 1; }
+        25% { transform: translateX(-50%) scale(1); }
+        75% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+
+      .hazard-banner {
+        position: fixed;
+        top: 20%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(20,0,0,0.92);
+        border: 2px solid rgba(255,100,0,0.5);
+        border-radius: 12px;
+        padding: 12px 28px;
+        text-align: center;
+        z-index: 290;
+        font-family: 'Courier New', monospace;
+        animation: hazardFlash 1.5s ease-in-out forwards;
+        pointer-events: none;
+      }
+      @keyframes hazardFlash {
+        0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
+        10% { transform: translateX(-50%) scale(1.05); opacity: 1; }
+        20% { transform: translateX(-50%) scale(1); }
+        70% { opacity: 1; }
+        100% { opacity: 0; transform: translateX(-50%) scale(0.95); }
+      }
+
+      .hazard-card {
+        background: rgba(20, 0, 0, 0.4);
+        border: 1px solid rgba(255, 100, 0, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-align: left;
+      }
+      .hazard-card:hover {
+        border-color: rgba(255, 100, 0, 0.7);
+        background: rgba(255, 100, 0, 0.1);
+        box-shadow: 0 0 10px rgba(255,100,0,0.2);
+      }
+      .hazard-name {
+        color: #ff6600;
+        font-size: 14px;
+        font-weight: bold;
+        margin-bottom: 4px;
+      }
+      .hazard-desc {
+        color: rgba(255,255,255,0.5);
+        font-size: 10px;
+      }
+    `;
+    document.body.appendChild(extraStyle);
     document.body.appendChild(this.overlay);
   }
 
@@ -456,6 +584,7 @@ export class UIManager {
       <button class="ui-btn primary" onclick="window.__ui.startGame()">▶ START GAME</button>
       <button class="ui-btn" onclick="window.__ui.showMultiplayerSetup()">👥 MULTIPLAYER</button>
       <button class="ui-btn" onclick="window.__ui.startCosmicBowling()">🌌 COSMIC BOWLING</button>
+      <button class="ui-btn" onclick="window.__ui.showHazardSelect()">⚡ HAZARD BOWL</button>
       <button class="ui-btn" onclick="window.__ui.showPractice()">🎯 PRACTICE</button>
       <button class="ui-btn" onclick="window.__ui.showChallenges()">🏅 CHALLENGES</button>
       <button class="ui-btn" onclick="window.__ui.showBallSelect()">🎳 BALL SELECT</button>
@@ -484,6 +613,7 @@ export class UIManager {
       showMultiplayerSetup: () => this.showMultiplayerSetup(),
       startCosmicBowling: () => this.onStartCosmicBowling(),
       showUnlocks: () => this.onShowUnlocks(),
+      showHazardSelect: () => this.showHazardSelect(),
     };
     this.showPanel('ui-title-screen');
   }
@@ -1023,5 +1153,131 @@ export class UIManager {
 
     (window as any).__ui.backToTitle = () => this.showTitleScreen();
     this.showPanel('ui-ball-unlocks');
+  }
+
+  // ── Hazard Bowl Select ─────────────────────────────────────────
+  showHazardSelect() {
+    const panel = document.getElementById('ui-hazard-select')!;
+    const presets = Object.entries(HAZARD_PRESETS);
+
+    let cardsHtml = '';
+    for (const [key, preset] of presets) {
+      const hazardIcons: Record<string, string> = {
+        gauntlet: '🚧',
+        gravity_maze: '🌀',
+        warp_zone: '🌊',
+        speed_circuit: '⚡',
+        chaos: '🔥',
+      };
+      const icon = hazardIcons[key] || '⚡';
+      cardsHtml += `
+        <div class="hazard-card" onclick="window.__startHazardBowl('${key}')">
+          <div style="font-size:24px">${icon}</div>
+          <div class="hazard-name">${preset.name}</div>
+          <div class="hazard-desc">${preset.description}</div>
+          <div class="hazard-desc" style="margin-top:4px;color:rgba(255,100,0,0.5)">${preset.hazards.length} obstacles</div>
+        </div>
+      `;
+    }
+
+    // Add random option
+    cardsHtml += `
+      <div class="hazard-card" onclick="window.__startHazardBowl('random')">
+        <div style="font-size:24px">🎲</div>
+        <div class="hazard-name">Random</div>
+        <div class="hazard-desc">Surprise obstacle layout each game</div>
+      </div>
+    `;
+
+    panel.innerHTML = `
+      <div class="ui-section-title" style="color:#ff6600;text-shadow:0 0 15px rgba(255,100,0,0.4)">⚡ HAZARD BOWL</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:12px;margin-bottom:16px">
+        Bowl through obstacle courses — energy barriers, gravity wells, portals & more
+      </div>
+      <div class="ball-grid">${cardsHtml}</div>
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
+    `;
+
+    (window as any).__startHazardBowl = (key: string) => {
+      this.onStartHazardBowl(key);
+    };
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-hazard-select');
+  }
+
+  // ── Power-Up HUD ───────────────────────────────────────────────
+  private powerUpHud: HTMLDivElement | null = null;
+
+  showPowerUpHUD(inventory: PowerUpDef[], activePowerUp: PowerUpType | null) {
+    if (!this.powerUpHud) {
+      this.powerUpHud = document.createElement('div');
+      this.powerUpHud.className = 'powerup-hud';
+      document.body.appendChild(this.powerUpHud);
+    }
+
+    let html = '';
+    for (let i = 0; i < 3; i++) {
+      if (i < inventory.length) {
+        const pu = inventory[i];
+        const activeClass = activePowerUp === pu.type ? ' active-pu' : '';
+        html += `
+          <div class="powerup-slot${activeClass}" onclick="window.__activatePowerUp('${pu.type}')" title="${pu.name}: ${pu.description}">
+            <span class="pu-icon">${pu.icon}</span>
+            <span class="pu-label">${pu.name.substring(0, 6)}</span>
+          </div>
+        `;
+      } else {
+        html += `<div class="powerup-slot empty"><span class="pu-icon">·</span></div>`;
+      }
+    }
+
+    this.powerUpHud.innerHTML = html;
+    this.powerUpHud.style.display = 'flex';
+
+    (window as any).__activatePowerUp = (type: PowerUpType) => {
+      this.onActivatePowerUp(type);
+    };
+  }
+
+  hidePowerUpHUD() {
+    if (this.powerUpHud) {
+      this.powerUpHud.style.display = 'none';
+    }
+  }
+
+  // ── Power-Up Notification ──────────────────────────────────────
+  showPowerUpNotification(def: PowerUpDef) {
+    const notif = document.createElement('div');
+    notif.className = 'powerup-notification';
+    notif.style.borderColor = '#' + def.color.getHexString();
+    notif.innerHTML = `
+      <div style="font-size:32px">${def.icon}</div>
+      <div style="color:#${def.color.getHexString()};font-size:16px;font-weight:bold">${def.name}</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:11px;margin-top:2px">${def.description}</div>
+    `;
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 2800);
+  }
+
+  // ── Hazard Trigger Banner ──────────────────────────────────────
+  showHazardTriggerBanner(hazardType: HazardType) {
+    const names: Record<HazardType, { name: string; icon: string }> = {
+      energy_barrier: { name: 'DEFLECTED!', icon: '🚧' },
+      gravity_well: { name: 'GRAVITY PULL!', icon: '🌀' },
+      speed_pad: { name: 'SPEED BOOST!', icon: '⚡' },
+      portal_gate: { name: 'WARPED!', icon: '🌊' },
+      deflector: { name: 'BOUNCED!', icon: '💥' },
+      phase_wall: { name: 'PHASED!', icon: '👻' },
+    };
+    const info = names[hazardType] || { name: 'HAZARD!', icon: '⚠️' };
+
+    const banner = document.createElement('div');
+    banner.className = 'hazard-banner';
+    banner.innerHTML = `
+      <span style="font-size:24px">${info.icon}</span>
+      <span style="color:#ff6600;font-size:18px;font-weight:bold;margin-left:8px">${info.name}</span>
+    `;
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 1800);
   }
 }

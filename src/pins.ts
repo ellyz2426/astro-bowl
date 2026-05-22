@@ -220,10 +220,31 @@ export class PinManager {
   }
 
   /**
+   * Pull standing pins slightly toward a point (for pin magnet power-up).
+   */
+  pullPinsToward(target: Vector3, strength: number) {
+    for (const pin of this.pins) {
+      if (!pin.standing) continue;
+      const dir = new Vector3(
+        target.x - pin.position.x,
+        0,
+        target.z - pin.position.z,
+      );
+      const dist = dir.length();
+      if (dist > 0.01 && dist < 1.0) {
+        dir.normalize();
+        pin.position.x += dir.x * strength;
+        pin.position.z += dir.z * strength;
+        pin.mesh.position.copy(pin.position);
+      }
+    }
+  }
+
+  /**
    * Apply ball collision to pins.
    * Returns number of pins knocked down.
    */
-  applyBallImpact(ballPos: Vector3, ballVelocity: Vector3, ballRadius: number, ballMass: number): number {
+  applyBallImpact(ballPos: Vector3, ballVelocity: Vector3, ballRadius: number, ballMass: number, scatterMultiplier: number = 1.0): number {
     let knockedDown = 0;
 
     for (const pin of this.pins) {
@@ -246,10 +267,10 @@ export class PinManager {
         ).normalize();
 
         // Impulse based on ball velocity and mass
-        const impulseMag = ballMass * ballVelocity.length() * 0.8;
-        pin.velocity.x += impactDir.x * impulseMag * 0.5 + ballVelocity.x * 0.3;
-        pin.velocity.z += impactDir.z * impulseMag * 0.5 + ballVelocity.z * 0.3;
-        pin.velocity.y += 1.5 + Math.random() * 2;
+        const impulseMag = ballMass * ballVelocity.length() * 0.8 * scatterMultiplier;
+        pin.velocity.x += (impactDir.x * impulseMag * 0.5 + ballVelocity.x * 0.3) * scatterMultiplier;
+        pin.velocity.z += (impactDir.z * impulseMag * 0.5 + ballVelocity.z * 0.3) * scatterMultiplier;
+        pin.velocity.y += (1.5 + Math.random() * 2) * scatterMultiplier;
 
         // Angular velocity from off-center hit
         pin.angularVelocity.x += (Math.random() - 0.5) * 8;
