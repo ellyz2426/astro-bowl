@@ -48,7 +48,7 @@ export class XRInputHandler {
   }
 
   update(dt: number) {
-    const xrInput = this.world.input?.xr;
+    const xrInput = (this.world.input as any)?.xr;
     if (!xrInput) return;
 
     const rightGamepad = xrInput.gamepads?.right;
@@ -56,7 +56,7 @@ export class XRInputHandler {
     if (!rightGamepad) return;
 
     // Track controller position for velocity calculation
-    const gripSpace = this.world.playerSpaceEntities?.gripSpaces?.right;
+    const gripSpace = (this.world as any).playerSpaceEntities?.gripSpaces?.right;
     if (gripSpace) {
       const pos = new Vector3();
       gripSpace.object3D.getWorldPosition(pos);
@@ -205,7 +205,7 @@ export class XRInputHandler {
   }
 
   getControllerPosition(): Vector3 | null {
-    const gripSpace = this.world.playerSpaceEntities?.gripSpaces?.right;
+    const gripSpace = (this.world as any).playerSpaceEntities?.gripSpaces?.right;
     if (!gripSpace) return null;
     const pos = new Vector3();
     gripSpace.object3D.getWorldPosition(pos);

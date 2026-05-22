@@ -19,27 +19,27 @@ import { AchievementTracker } from './achievements';
 import { LeaderboardManager } from './leaderboard';
 import { AimIndicator } from './aim';
 import { ChallengeManager, ChallengeType } from './challenges';
+import { PracticeManager, PinPreset, PIN_PRESETS } from './practice';
+import { StatisticsTracker, GameRecord } from './statistics';
+import { TutorialManager } from './tutorial';
+import { LaneEffects } from './laneeffects';
+import { NeighboringLanes } from './neighbors';
 
 // ── Bootstrap ──────────────────────────────────────────────────
-const container = document.getElementById('scene-container')!;
+const container = document.getElementById('scene-container') as HTMLDivElement;
 
 const world = await World.create(container, {
   xr: { offer: 'once' },
-  input: { canvasPointerEvents: true },
   render: {
     near: 0.01,
     far: 200,
-    camera: {
-      position: [0, 1.7, 1.5],
-      lookAt: [0, 0.5, -10],
-    },
   },
   features: {
     grabbing: false,
     locomotion: false,
     physics: false,
   },
-});
+} as any);
 
 // ── Systems Init ───────────────────────────────────────────────
 const gameManager = new GameManager();
@@ -68,6 +68,15 @@ const achievements = new AchievementTracker();
 const leaderboard = new LeaderboardManager();
 const challengeManager = new ChallengeManager();
 
+// New systems
+const practiceManager = new PracticeManager();
+const statistics = new StatisticsTracker();
+const tutorial = new TutorialManager();
+const laneEffects = new LaneEffects(themeColors.primary);
+world.scene.add(laneEffects.group);
+const neighbors = new NeighboringLanes(themeColors.primary, themeColors.secondary);
+world.scene.add(neighbors.group);
+
 // Canvas for browser input
 const canvas = container.querySelector('canvas') as HTMLCanvasElement;
 const xrInput = new XRInputHandler(world);
@@ -87,6 +96,8 @@ let musicVolume = 0.3;
 let sfxVolume = 0.6;
 let gutterEventFired = false;
 let challengeActive = false;
+let practiceActive = false;
+let tutorialShownThisSession = false;
 
 // ── Helper: apply theme ────────────────────────────────────────
 function applyTheme(themeName: string) {
@@ -125,6 +136,8 @@ function throwBall(velocity: Vector3) {
   ballThrown = true;
   gameManager.setState(GameState.BALL_ROLLING);
   aimIndicator.hide();
+  laneEffects.activateSpeedStrips();
+  laneEffects.clearArrowHighlights();
 
   audio.init().then(() => {
     audio.startRollingSound();
@@ -132,6 +145,9 @@ function throwBall(velocity: Vector3) {
   });
 
   hud.hidePowerBar();
+
+  // Notify tutorial
+  tutorial.notifyAction('throw');
 }
 
 // ── Helper: handle roll result ─────────────────────────────────
@@ -142,7 +158,9 @@ function handleRollResult(pinsDown: number) {
   audio.init().then(() => {
     if (result.isStrike) {
       audio.playStrikeFanfare();
+      audio.playCrowdCheer(1.5);
       effects.playStrikeCelebration(new Vector3(0, 0.5, LANE.HEADPIN_Z));
+      laneEffects.spawnImpactRing(new Vector3(0, 0, LANE.HEADPIN_Z), new Color(0xff4444));
       hud.showMessage('STRIKE!', '🎳', 2500);
 
       if (gameManager.stats.currentStreak >= 3) {
@@ -154,15 +172,21 @@ function handleRollResult(pinsDown: number) {
       achievements.recordStrike();
     } else if (result.isSpare) {
       audio.playSpareChime();
+      audio.playCrowdCheer(0.8);
       effects.playSpareCelebration(new Vector3(0, 0.5, LANE.HEADPIN_Z));
       hud.showMessage('SPARE!', '/', 2000);
       achievements.recordSpare();
     } else if (pinsDown === 0) {
       audio.playGutterSad();
+      audio.playCrowdGroan();
       hud.showMessage('GUTTER', '', 1500);
       achievements.recordGutter();
     } else {
       achievements.recordOpen();
+      // Near miss — crowd reaction for 8-9 pins
+      if (pinsDown >= 8) {
+        audio.playCrowdOoh();
+      }
     }
 
     if (pinsDown > 0) {
@@ -205,6 +229,21 @@ function endGame() {
     spares: stats.spares,
   });
 
+  // Save detailed statistics
+  statistics.recordGame({
+    date: new Date().toISOString(),
+    score,
+    strikes: stats.strikes,
+    spares: stats.spares,
+    gutters: stats.gutters,
+    totalPins: stats.totalPins,
+    maxStreak: stats.maxStreak,
+    ballType: gameManager.ballType,
+    theme: currentTheme,
+    perfectGame: stats.perfectGame,
+    frames: gameManager.frames.map(f => [...f.rolls]),
+  });
+
   // Check achievements
   achievements.recordGameComplete(score, stats);
   achievements.recordBallUsed(gameManager.ballType);
@@ -212,6 +251,7 @@ function endGame() {
 
   // Show game over screen
   hud.hide();
+  laneEffects.deactivateSpeedStrips();
   audio.stopAmbientMusic();
   audio.stopRollingSound();
   ui.showGameOver(score, stats);
@@ -220,6 +260,21 @@ function endGame() {
 
 // ── Helper: start a new game ───────────────────────────────────
 function startGame() {
+  // Show tutorial for first-time players
+  if (!tutorial.hasCompleted() && !tutorialShownThisSession) {
+    tutorialShownThisSession = true;
+    tutorial.start(isXRSession, () => {
+      // Tutorial complete — proceed with game start
+      actualStartGame();
+    });
+    return;
+  }
+  actualStartGame();
+}
+
+function actualStartGame() {
+  practiceActive = false;
+  practiceManager.stop();
   gameManager.reset();
   pinManager.resetPins();
   ball.resetToReturn();
@@ -229,7 +284,39 @@ function startGame() {
 
   audio.init().then(() => {
     audio.startAmbientMusic();
+    audio.playLaneHum();
   });
+
+  prepareForRoll();
+}
+
+// Practice mode start
+function startPractice(preset: PinPreset) {
+  practiceActive = true;
+  practiceManager.start(preset);
+  gameManager.reset();
+  pinManager.resetPins();
+  ball.resetToReturn();
+
+  ui.hideAll();
+  hud.show();
+
+  audio.init().then(() => {
+    audio.startAmbientMusic();
+    audio.playLaneHum();
+  });
+
+  // Apply pin preset if not full
+  if (preset !== 'full') {
+    const pinSetup = practiceManager.getPinSetup();
+    for (let i = 0; i < 10; i++) {
+      if (!pinSetup[i]) {
+        pinManager.pins[i].standing = false;
+        pinManager.pins[i].mesh.visible = false;
+      }
+      gameManager.pinsStanding[i] = pinSetup[i];
+    }
+  }
 
   prepareForRoll();
 }
@@ -253,6 +340,9 @@ ui.onResume = () => {
 ui.onQuit = () => {
   audio.stopAmbientMusic();
   audio.stopRollingSound();
+  laneEffects.deactivateSpeedStrips();
+  practiceActive = false;
+  practiceManager.stop();
   hud.hide();
   ui.showTitleScreen();
   gameManager.setState(GameState.TITLE);
@@ -263,6 +353,17 @@ ui.onShowLeaderboard = () => {
 };
 ui.onShowAchievements = () => {
   ui.showAchievements(achievements.getAll());
+};
+ui.onShowStatistics = () => {
+  ui.showStatistics(statistics.overall, statistics.getRecentGames(5), statistics.getImprovementTrend());
+};
+ui.onStartPractice = (preset: string) => {
+  startPractice(preset as PinPreset);
+};
+ui.onShowTutorial = () => {
+  tutorial.start(isXRSession, () => {
+    ui.showTitleScreen();
+  });
 };
 
 // ── Wire up challenges ─────────────────────────────────────────
@@ -294,6 +395,7 @@ xrInput.onGrabBall = () => {
     ball.state = BallState.HELD;
     gameManager.setState(GameState.THROWING);
     audio.init().then(() => audio.playUIClick());
+    tutorial.notifyAction('grab');
   }
 };
 
@@ -348,16 +450,19 @@ if (browserInput) {
       gameManager.setState(GameState.THROWING);
       hud.showPowerBar();
       aimIndicator.show();
+      tutorial.notifyAction('startCharge');
     }
   };
 
   browserInput.onPowerChange = (power: number) => {
     hud.setPower(power);
     aimIndicator.update(browserInput.getAimX(), power);
+    laneEffects.highlightArrows(browserInput.getAimX(), power);
   };
 
   browserInput.onAimChange = (aimX: number) => {
     aimIndicator.update(aimX, browserInput.getPower());
+    laneEffects.highlightArrows(aimX, browserInput.getPower());
   };
 
   browserInput.onThrow = (velocity: Vector3) => {
@@ -556,6 +661,8 @@ function gameLoop() {
   environment.update(time);
   lane.update(time);
   effects.update(dt);
+  laneEffects.update(time, dt);
+  neighbors.update(time, dt);
 
   // Pin physics always need updating for falling animation
   if (state !== GameState.PIN_SETTLING) {

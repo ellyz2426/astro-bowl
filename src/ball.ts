@@ -74,6 +74,36 @@ export const BALL_TYPES: Record<string, BallType> = {
     emissive: new Color(0x220044),
     special: 'phantom',
   },
+  ricochet: {
+    name: 'Ricochet',
+    description: 'Bounces off gutters back onto the lane',
+    mass: 5.9,
+    speedMult: 1.05,
+    hookStrength: 0.0,
+    color: new Color(0xff8800),
+    emissive: new Color(0x442200),
+    special: 'ricochet',
+  },
+  magnetar: {
+    name: 'Magnetar',
+    description: 'Attracts nearby pins toward impact point',
+    mass: 7.0,
+    speedMult: 0.9,
+    hookStrength: 0.15,
+    color: new Color(0xff0088),
+    emissive: new Color(0x440022),
+    special: 'magnetar',
+  },
+  wormhole: {
+    name: 'Wormhole',
+    description: 'Teleports forward past the arrows, surprise angle',
+    mass: 6.35,
+    speedMult: 1.1,
+    hookStrength: 0.0,
+    color: new Color(0x00ff88),
+    emissive: new Color(0x004422),
+    special: 'wormhole',
+  },
 };
 
 const BALL_RADIUS = 0.109; // ~4.3 inches radius
@@ -270,8 +300,14 @@ export class BallController {
     // Gutter detection
     const halfLane = LANE.LANE_WIDTH / 2;
     if (!this.inGutter && Math.abs(this.position.x) > halfLane) {
-      this.inGutter = true;
-      this.state = BallState.IN_GUTTER;
+      // Ricochet ball bounces back from gutter
+      if (this.ballType.special === 'ricochet') {
+        this.velocity.x *= -0.7;
+        this.position.x = Math.sign(this.position.x) * (halfLane - 0.01);
+      } else {
+        this.inGutter = true;
+        this.state = BallState.IN_GUTTER;
+      }
     }
 
     // Keep in gutter bounds
@@ -308,6 +344,36 @@ export class BallController {
           }
         });
         this.phantomPhased = true;
+      }
+    }
+
+    // Wormhole ball teleport (jumps forward past arrows)
+    if (this.ballType.special === 'wormhole' && !this.phantomPhased) {
+      if (this.position.z < LANE.ARROW_Z + 1 && this.position.z > LANE.ARROW_Z - 1) {
+        this.phantomPhased = true;
+        // Teleport forward with slight random offset
+        this.position.z = LANE.HEADPIN_Z + 2;
+        this.position.x += (Math.random() - 0.5) * 0.3;
+        // Brief transparency effect (reuse phantom flag)
+        this.mesh.traverse(child => {
+          if (child instanceof Mesh) {
+            const mat = child.material as any;
+            if (mat.opacity !== undefined) {
+              mat.transparent = true;
+              mat.opacity = 0.5;
+            }
+          }
+        });
+        // Restore opacity after short delay
+        setTimeout(() => {
+          this.mesh.traverse(child => {
+            if (child instanceof Mesh) {
+              const mat = child.material as any;
+              mat.opacity = 1;
+              mat.transparent = false;
+            }
+          });
+        }, 300);
       }
     }
 

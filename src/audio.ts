@@ -495,4 +495,185 @@ export class AudioManager {
     this.sfxVolume = vol;
     this.sfxGain.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.05);
   }
+
+  /**
+   * Crowd cheer — layered noise bursts simulating crowd reaction.
+   */
+  playCrowdCheer(intensity: number = 1) {
+    const duration = 0.8 + intensity * 0.6;
+    const bufSize = Math.floor(this.ctx.sampleRate * duration);
+    const buffer = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    // Layered filtered noise for crowd ambiance
+    for (let i = 0; i < bufSize; i++) {
+      const t = i / bufSize;
+      const envelope = Math.sin(t * Math.PI) * (1 - t * 0.3);
+      data[i] = (Math.random() * 2 - 1) * envelope * 0.15 * intensity;
+      // Add some modulation for crowd-like quality
+      data[i] *= 1 + 0.3 * Math.sin(t * 120);
+    }
+
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 1200;
+    filter.Q.value = 0.5;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.12 * intensity;
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    source.start();
+    source.stop(this.ctx.currentTime + duration + 0.1);
+  }
+
+  /**
+   * Crowd groan — low descending filtered noise for gutter/miss.
+   */
+  playCrowdGroan() {
+    const bufSize = Math.floor(this.ctx.sampleRate * 0.6);
+    const buffer = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < bufSize; i++) {
+      const t = i / bufSize;
+      const envelope = (1 - t) * Math.sin(t * Math.PI * 0.8);
+      data[i] = (Math.random() * 2 - 1) * envelope * 0.1;
+    }
+
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 600;
+    filter.frequency.linearRampToValueAtTime(200, this.ctx.currentTime + 0.5);
+    filter.Q.value = 1;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.08;
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    source.start();
+    source.stop(this.ctx.currentTime + 0.7);
+  }
+
+  /**
+   * Crowd "ooh" — for near-misses and close spares.
+   */
+  playCrowdOoh() {
+    const notes = [350, 330, 310, 290];
+    notes.forEach((freq, i) => {
+      setTimeout(() => {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0.04;
+        gain.gain.setTargetAtTime(0, this.ctx.currentTime + 0.15, 0.1);
+
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.3);
+      }, i * 80);
+    });
+  }
+
+  /**
+   * Lane ambient hum — subtle electronic buzz for atmosphere.
+   */
+  playLaneHum() {
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 90;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 120;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.02;
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.musicGain);
+    osc.start();
+
+    // Store for cleanup
+    this.ambientOsc.push(osc);
+    this.ambientGains.push(gain);
+  }
+
+  /**
+   * Wormhole teleport sound — sci-fi zap.
+   */
+  playWormholeZap() {
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 200;
+    osc.frequency.exponentialRampToValueAtTime(2000, this.ctx.currentTime + 0.15);
+    osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.3);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 800;
+    filter.Q.value = 3;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.15;
+    gain.gain.setTargetAtTime(0, this.ctx.currentTime + 0.2, 0.1);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.4);
+  }
+
+  /**
+   * Ricochet bounce sound.
+   */
+  playRicochetBounce() {
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = 600;
+    osc.frequency.setTargetAtTime(1200, this.ctx.currentTime + 0.05, 0.03);
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.12;
+    gain.gain.setTargetAtTime(0, this.ctx.currentTime + 0.1, 0.05);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.2);
+  }
+
+  /**
+   * Magnetar pull sound — deep hum with rising pitch.
+   */
+  playMagnetarPull() {
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 50;
+    osc.frequency.linearRampToValueAtTime(150, this.ctx.currentTime + 0.5);
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.1;
+    gain.gain.setTargetAtTime(0, this.ctx.currentTime + 0.4, 0.15);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.6);
+  }
 }

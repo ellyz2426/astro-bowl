@@ -19,6 +19,9 @@ export class UIManager {
   onShowSettings: () => void = () => {};
   onPlayAgain: () => void = () => {};
   onStartChallenge: (type: ChallengeType) => void = () => {};
+  onShowStatistics: () => void = () => {};
+  onStartPractice: (preset: string) => void = () => {};
+  onShowTutorial: () => void = () => {};
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -255,6 +258,8 @@ export class UIManager {
       <div class="ui-panel" id="ui-achievements"></div>
       <div class="ui-panel" id="ui-challenges"></div>
       <div class="ui-panel" id="ui-challenge-result"></div>
+      <div class="ui-panel" id="ui-statistics"></div>
+      <div class="ui-panel" id="ui-practice"></div>
     `;
     document.body.appendChild(this.overlay);
   }
@@ -281,11 +286,14 @@ export class UIManager {
       <div class="ui-title">ASTRO BOWL</div>
       <div class="ui-subtitle">HOLODECK BOWLING</div>
       <button class="ui-btn primary" onclick="window.__ui.startGame()">▶ START GAME</button>
+      <button class="ui-btn" onclick="window.__ui.showPractice()">🎯 PRACTICE</button>
       <button class="ui-btn" onclick="window.__ui.showChallenges()">🏅 CHALLENGES</button>
       <button class="ui-btn" onclick="window.__ui.showBallSelect()">🎳 BALL SELECT</button>
       <button class="ui-btn" onclick="window.__ui.showSettings()">⚙ SETTINGS</button>
+      <button class="ui-btn" onclick="window.__ui.showStatistics()">📊 STATISTICS</button>
       <button class="ui-btn" onclick="window.__ui.showLeaderboard()">🏆 LEADERBOARD</button>
       <button class="ui-btn" onclick="window.__ui.showAchievements()">⭐ ACHIEVEMENTS</button>
+      <button class="ui-btn" onclick="window.__ui.showTutorial()" style="opacity:0.6;font-size:13px">❓ HOW TO PLAY</button>
       <div class="controls-hint">
         VR: Grip to grab ball · Trigger to throw · Thumbstick to navigate<br>
         Browser: Click + drag to aim · Hold for power · Release to throw · WASD to move
@@ -299,6 +307,9 @@ export class UIManager {
       showLeaderboard: () => this.onShowLeaderboard(),
       showAchievements: () => this.onShowAchievements(),
       showChallenges: () => this.showChallenges(),
+      showStatistics: () => this.onShowStatistics(),
+      showPractice: () => this.showPractice(),
+      showTutorial: () => this.onShowTutorial(),
     };
     this.showPanel('ui-title-screen');
   }
@@ -516,5 +527,104 @@ export class UIManager {
 
     (window as any).__ui.backToTitle = () => this.showTitleScreen();
     this.showPanel('ui-challenge-result');
+  }
+
+  showStatistics(
+    overall: { totalGames: number; avgScore: number; bestScore: number; worstScore: number;
+      totalStrikes: number; totalSpares: number; totalGutters: number; longestStreak: number;
+      perfectGames: number; cleanGames: number; gamesOver200: number; strikeRate: number;
+      spareRate: number; recentTrend: number[]; ballTypeStats: Record<string, { gamesPlayed: number; avgScore: number; bestScore: number }> },
+    recentGames: { date: string; score: number; strikes: number; spares: number; ballType: string }[],
+    trend: string,
+  ) {
+    const panel = document.getElementById('ui-statistics')!;
+
+    const trendEmoji = trend === 'improving' ? '📈' : trend === 'declining' ? '📉' : trend === 'stable' ? '➡️' : '🆕';
+    const trendText = trend === 'improving' ? 'Improving!' : trend === 'declining' ? 'Declining' : trend === 'stable' ? 'Stable' : 'Need more games';
+
+    // Score trend sparkline (simple ASCII bar chart)
+    let trendChart = '';
+    if (overall.recentTrend.length > 0) {
+      const max = Math.max(...overall.recentTrend, 1);
+      trendChart = '<div style="display:flex;align-items:flex-end;height:50px;gap:3px;margin:8px auto;justify-content:center">';
+      for (const score of overall.recentTrend) {
+        const h = Math.max(4, (score / max) * 45);
+        trendChart += `<div style="width:12px;height:${h}px;background:rgba(0,255,255,0.4);border-radius:2px" title="${score}"></div>`;
+      }
+      trendChart += '</div>';
+    }
+
+    // Ball type breakdown
+    let ballStats = '';
+    for (const [key, bs] of Object.entries(overall.ballTypeStats)) {
+      if (bs.gamesPlayed > 0) {
+        ballStats += `<div class="stat-row"><span>${key}</span><span class="stat-value">${bs.gamesPlayed} games · avg ${bs.avgScore} · best ${bs.bestScore}</span></div>`;
+      }
+    }
+
+    // Recent games
+    let recentHtml = '';
+    for (const game of recentGames) {
+      recentHtml += `<div class="stat-row"><span>${game.score} pts</span><span class="stat-value">${game.strikes}X ${game.spares}/ · ${game.ballType}</span></div>`;
+    }
+
+    panel.innerHTML = `
+      <div class="ui-section-title">📊 STATISTICS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-bottom:12px">
+        <div class="stat-row"><span>Games</span><span class="stat-value">${overall.totalGames}</span></div>
+        <div class="stat-row"><span>Average</span><span class="stat-value">${overall.avgScore}</span></div>
+        <div class="stat-row"><span>Best</span><span class="stat-value">${overall.bestScore}</span></div>
+        <div class="stat-row"><span>200+ Games</span><span class="stat-value">${overall.gamesOver200}</span></div>
+        <div class="stat-row"><span>Strike Rate</span><span class="stat-value">${overall.strikeRate}%</span></div>
+        <div class="stat-row"><span>Spare Rate</span><span class="stat-value">${overall.spareRate}%</span></div>
+        <div class="stat-row"><span>Best Streak</span><span class="stat-value">${overall.longestStreak}</span></div>
+        <div class="stat-row"><span>Perfect Games</span><span class="stat-value">${overall.perfectGames}</span></div>
+        <div class="stat-row"><span>Clean Games</span><span class="stat-value">${overall.cleanGames}</span></div>
+        <div class="stat-row"><span>Trend</span><span class="stat-value">${trendEmoji} ${trendText}</span></div>
+      </div>
+      ${trendChart ? `<div style="color:rgba(0,255,255,0.5);font-size:11px;margin-bottom:4px">RECENT SCORES</div>${trendChart}` : ''}
+      ${ballStats ? `<div style="color:rgba(0,255,255,0.5);font-size:11px;margin-top:8px">BY BALL TYPE</div>${ballStats}` : ''}
+      ${recentHtml ? `<div style="color:rgba(0,255,255,0.5);font-size:11px;margin-top:8px">RECENT GAMES</div>${recentHtml}` : ''}
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
+    `;
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-statistics');
+  }
+
+  showPractice() {
+    const panel = document.getElementById('ui-practice')!;
+    const presets = [
+      { key: 'full', name: 'Full Rack', desc: 'All 10 pins', icon: '🎳' },
+      { key: 'left_side', name: 'Left Side', desc: 'Pins 1-2-4-5-7-8', icon: '◀' },
+      { key: 'right_side', name: 'Right Side', desc: 'Pins 1-3-5-6-9-10', icon: '▶' },
+      { key: 'back_row', name: 'Back Row', desc: 'Pins 7-8-9-10 only', icon: '⬆' },
+      { key: '7_10_split', name: '7-10 Split', desc: 'The impossible split', icon: '↔' },
+      { key: 'baby_split', name: 'Baby Split', desc: 'Pins 4-6', icon: '🔀' },
+      { key: 'random', name: 'Random', desc: 'Surprise pin layout each roll', icon: '🎲' },
+    ];
+
+    let cardsHtml = '';
+    for (const p of presets) {
+      cardsHtml += `
+        <div class="ball-card" onclick="window.__startPractice('${p.key}')">
+          <div style="font-size:24px">${p.icon}</div>
+          <div class="ball-name">${p.name}</div>
+          <div class="ball-desc">${p.desc}</div>
+        </div>
+      `;
+    }
+
+    panel.innerHTML = `
+      <div class="ui-section-title">🎯 PRACTICE MODE</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:12px;margin-bottom:12px">Bowl endlessly without scoring — focus on technique</div>
+      <div class="ball-grid">${cardsHtml}</div>
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
+    `;
+
+    (window as any).__startPractice = (key: string) => {
+      this.onStartPractice(key);
+    };
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-practice');
   }
 }
