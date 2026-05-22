@@ -1,10 +1,12 @@
 /**
  * Astro Bowl VR — UI Screens
- * Title screen, game over, ball selection, settings, pause, achievements, leaderboard.
+ * Title screen, game over, ball selection, settings, pause, achievements, leaderboard,
+ * multiplayer setup, cosmic bowling, ball unlocks.
  */
 import { BALL_TYPES } from './ball';
 import { THEMES } from './environment';
 import { ChallengeType, CHALLENGES } from './challenges';
+import { CosmicEvent } from './cosmic';
 
 export class UIManager {
   private overlay: HTMLDivElement;
@@ -22,6 +24,10 @@ export class UIManager {
   onShowStatistics: () => void = () => {};
   onStartPractice: (preset: string) => void = () => {};
   onShowTutorial: () => void = () => {};
+  onStartMultiplayer: (playerCount: number, names: string[]) => void = () => {};
+  onStartCosmicBowling: () => void = () => {};
+  onSkipReplay: () => void = () => {};
+  onShowUnlocks: () => void = () => {};
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -248,6 +254,162 @@ export class UIManager {
           font-size: 10px;
         }
         .achievement-card.unlocked .achievement-name { color: #00ffff; }
+
+        .mp-scoreboard {
+          position: fixed;
+          top: 10px; right: 10px;
+          background: rgba(0,8,16,0.85);
+          border: 1px solid rgba(0,255,255,0.3);
+          border-radius: 8px;
+          padding: 8px 14px;
+          z-index: 250;
+          font-family: 'Courier New', monospace;
+          min-width: 160px;
+          display: none;
+        }
+        .mp-scoreboard.show { display: block; }
+        .mp-score-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 3px 0;
+          font-size: 13px;
+          color: rgba(255,255,255,0.6);
+        }
+        .mp-score-row.active {
+          color: #ffffff;
+          font-weight: bold;
+        }
+        .mp-score-dot {
+          width: 8px; height: 8px;
+          border-radius: 50%;
+          display: inline-block;
+          margin-right: 6px;
+        }
+        .mp-score-value {
+          color: #00ffff;
+          font-size: 14px;
+        }
+
+        .cosmic-banner {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(0,8,16,0.95);
+          border: 2px solid rgba(255,100,0,0.6);
+          border-radius: 16px;
+          padding: 24px 48px;
+          text-align: center;
+          z-index: 300;
+          font-family: 'Courier New', monospace;
+          animation: cosmicPulse 1.5s ease-in-out;
+          pointer-events: none;
+        }
+        @keyframes cosmicPulse {
+          0% { transform: translate(-50%,-50%) scale(0.5); opacity: 0; }
+          20% { transform: translate(-50%,-50%) scale(1.1); opacity: 1; }
+          80% { transform: translate(-50%,-50%) scale(1); opacity: 1; }
+          100% { transform: translate(-50%,-50%) scale(0.9); opacity: 0; }
+        }
+        .cosmic-icon { font-size: 48px; margin-bottom: 8px; }
+        .cosmic-name { font-size: 24px; color: #ff6600; font-weight: bold; }
+        .cosmic-desc { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 4px; }
+
+        .turn-banner {
+          position: fixed;
+          top: 30%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(0,8,16,0.92);
+          border: 2px solid rgba(0,255,255,0.5);
+          border-radius: 16px;
+          padding: 20px 48px;
+          text-align: center;
+          z-index: 280;
+          font-family: 'Courier New', monospace;
+          animation: turnSlide 2s ease-in-out;
+          pointer-events: none;
+        }
+        @keyframes turnSlide {
+          0% { transform: translate(-50%,-100%); opacity: 0; }
+          15% { transform: translate(-50%,-50%); opacity: 1; }
+          85% { transform: translate(-50%,-50%); opacity: 1; }
+          100% { transform: translate(-50%,100%); opacity: 0; }
+        }
+        .turn-name { font-size: 28px; font-weight: bold; }
+        .turn-subtitle { font-size: 13px; color: rgba(255,255,255,0.5); margin-top: 4px; }
+
+        .replay-skip {
+          position: fixed;
+          bottom: 40px;
+          right: 40px;
+          background: rgba(0,8,16,0.8);
+          border: 1px solid rgba(0,255,255,0.4);
+          border-radius: 8px;
+          padding: 10px 24px;
+          color: #00ffff;
+          font-family: 'Courier New', monospace;
+          font-size: 14px;
+          cursor: pointer;
+          z-index: 290;
+          transition: all 0.2s;
+        }
+        .replay-skip:hover {
+          background: rgba(0,255,255,0.15);
+          border-color: #00ffff;
+        }
+
+        .unlock-popup {
+          position: fixed;
+          bottom: 20%;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0,8,16,0.95);
+          border: 2px solid rgba(255,215,0,0.6);
+          border-radius: 12px;
+          padding: 16px 32px;
+          text-align: center;
+          z-index: 310;
+          font-family: 'Courier New', monospace;
+          animation: unlockPop 3s ease-in-out forwards;
+          pointer-events: none;
+        }
+        @keyframes unlockPop {
+          0% { transform: translateX(-50%) scale(0); opacity: 0; }
+          15% { transform: translateX(-50%) scale(1.15); opacity: 1; }
+          25% { transform: translateX(-50%) scale(1); }
+          80% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        .unlock-icon { font-size: 36px; }
+        .unlock-title { color: #ffd700; font-size: 16px; font-weight: bold; }
+        .unlock-desc { color: rgba(255,255,255,0.6); font-size: 12px; margin-top: 4px; }
+
+        .progress-bar {
+          width: 100%;
+          height: 6px;
+          background: rgba(255,255,255,0.1);
+          border-radius: 3px;
+          margin-top: 6px;
+          overflow: hidden;
+        }
+        .progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #00ffff, #00ff88);
+          border-radius: 3px;
+          transition: width 0.3s;
+        }
+
+        .ball-card.locked {
+          opacity: 0.4;
+          cursor: default;
+        }
+        .ball-card.locked:hover {
+          border-color: rgba(0,255,255,0.2);
+          background: rgba(0,20,40,0.6);
+          box-shadow: none;
+        }
       </style>
       <div class="ui-panel" id="ui-title-screen"></div>
       <div class="ui-panel" id="ui-ball-select"></div>
@@ -260,6 +422,12 @@ export class UIManager {
       <div class="ui-panel" id="ui-challenge-result"></div>
       <div class="ui-panel" id="ui-statistics"></div>
       <div class="ui-panel" id="ui-practice"></div>
+      <div class="ui-panel" id="ui-multiplayer-setup"></div>
+      <div class="ui-panel" id="ui-multiplayer-over"></div>
+      <div class="ui-panel" id="ui-cosmic-event"></div>
+      <div class="ui-panel" id="ui-ball-unlocks"></div>
+      <div class="ui-panel" id="ui-turn-banner"></div>
+      <div class="ui-panel" id="ui-replay-prompt"></div>
     `;
     document.body.appendChild(this.overlay);
   }
@@ -286,6 +454,8 @@ export class UIManager {
       <div class="ui-title">ASTRO BOWL</div>
       <div class="ui-subtitle">HOLODECK BOWLING</div>
       <button class="ui-btn primary" onclick="window.__ui.startGame()">▶ START GAME</button>
+      <button class="ui-btn" onclick="window.__ui.showMultiplayerSetup()">👥 MULTIPLAYER</button>
+      <button class="ui-btn" onclick="window.__ui.startCosmicBowling()">🌌 COSMIC BOWLING</button>
       <button class="ui-btn" onclick="window.__ui.showPractice()">🎯 PRACTICE</button>
       <button class="ui-btn" onclick="window.__ui.showChallenges()">🏅 CHALLENGES</button>
       <button class="ui-btn" onclick="window.__ui.showBallSelect()">🎳 BALL SELECT</button>
@@ -293,6 +463,7 @@ export class UIManager {
       <button class="ui-btn" onclick="window.__ui.showStatistics()">📊 STATISTICS</button>
       <button class="ui-btn" onclick="window.__ui.showLeaderboard()">🏆 LEADERBOARD</button>
       <button class="ui-btn" onclick="window.__ui.showAchievements()">⭐ ACHIEVEMENTS</button>
+      <button class="ui-btn" onclick="window.__ui.showUnlocks()">🔓 BALL COLLECTION</button>
       <button class="ui-btn" onclick="window.__ui.showTutorial()" style="opacity:0.6;font-size:13px">❓ HOW TO PLAY</button>
       <div class="controls-hint">
         VR: Grip to grab ball · Trigger to throw · Thumbstick to navigate<br>
@@ -310,6 +481,9 @@ export class UIManager {
       showStatistics: () => this.onShowStatistics(),
       showPractice: () => this.showPractice(),
       showTutorial: () => this.onShowTutorial(),
+      showMultiplayerSetup: () => this.showMultiplayerSetup(),
+      startCosmicBowling: () => this.onStartCosmicBowling(),
+      showUnlocks: () => this.onShowUnlocks(),
     };
     this.showPanel('ui-title-screen');
   }
@@ -626,5 +800,228 @@ export class UIManager {
     };
     (window as any).__ui.backToTitle = () => this.showTitleScreen();
     this.showPanel('ui-practice');
+  }
+
+  // ── Multiplayer Setup ──────────────────────────────────────────
+  showMultiplayerSetup() {
+    const panel = document.getElementById('ui-multiplayer-setup')!;
+    panel.innerHTML = `
+      <div class="ui-section-title">👥 MULTIPLAYER</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:12px;margin-bottom:16px">
+        Local turn-based bowling for 2-4 players
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="color:rgba(0,255,255,0.6);font-size:12px;margin-bottom:8px">NUMBER OF PLAYERS</div>
+        <div style="display:flex;gap:10px;justify-content:center" id="mp-player-count">
+          <button class="ui-btn" style="width:60px" onclick="window.__mpSetCount(2)">2</button>
+          <button class="ui-btn" style="width:60px" onclick="window.__mpSetCount(3)">3</button>
+          <button class="ui-btn" style="width:60px" onclick="window.__mpSetCount(4)">4</button>
+        </div>
+      </div>
+      <div id="mp-names" style="margin:12px 0"></div>
+      <button class="ui-btn primary" onclick="window.__mpStart()" id="mp-start-btn" style="display:none">▶ START GAME</button>
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
+    `;
+
+    let selectedCount = 0;
+    (window as any).__mpSetCount = (n: number) => {
+      selectedCount = n;
+      const namesDiv = document.getElementById('mp-names')!;
+      const colors = ['#00ffff', '#ff00ff', '#ffff00', '#00ff88'];
+      let html = '';
+      for (let i = 0; i < n; i++) {
+        html += `
+          <div style="display:flex;align-items:center;gap:8px;margin:6px auto;max-width:300px">
+            <div style="width:12px;height:12px;border-radius:50%;background:${colors[i]};box-shadow:0 0 6px ${colors[i]}"></div>
+            <input type="text" id="mp-name-${i}" value="Player ${i + 1}"
+              style="flex:1;background:rgba(0,20,40,0.6);border:1px solid rgba(0,255,255,0.3);
+              border-radius:4px;padding:6px 10px;color:#fff;font-family:'Courier New',monospace;font-size:13px">
+          </div>
+        `;
+      }
+      namesDiv.innerHTML = html;
+      document.getElementById('mp-start-btn')!.style.display = 'block';
+    };
+
+    (window as any).__mpStart = () => {
+      if (selectedCount < 2) return;
+      const names: string[] = [];
+      for (let i = 0; i < selectedCount; i++) {
+        const input = document.getElementById(`mp-name-${i}`) as HTMLInputElement;
+        names.push(input?.value?.trim() || `Player ${i + 1}`);
+      }
+      this.onStartMultiplayer(selectedCount, names);
+    };
+
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-multiplayer-setup');
+  }
+
+  // ── Multiplayer Scoreboard (persistent overlay during game) ──
+  private mpScoreboard: HTMLDivElement | null = null;
+
+  showMultiplayerScoreboard(players: { name: string; color: string; score: number; isActive: boolean }[]) {
+    if (!this.mpScoreboard) {
+      this.mpScoreboard = document.createElement('div');
+      this.mpScoreboard.className = 'mp-scoreboard';
+      document.body.appendChild(this.mpScoreboard);
+    }
+
+    let html = '<div style="color:rgba(0,255,255,0.5);font-size:10px;letter-spacing:2px;margin-bottom:4px">SCOREBOARD</div>';
+    for (const p of players) {
+      const activeClass = p.isActive ? ' active' : '';
+      html += `
+        <div class="mp-score-row${activeClass}">
+          <span><span class="mp-score-dot" style="background:${p.color}"></span>${p.name}</span>
+          <span class="mp-score-value">${p.score}</span>
+        </div>
+      `;
+    }
+    this.mpScoreboard.innerHTML = html;
+    this.mpScoreboard.classList.add('show');
+  }
+
+  hideMultiplayerScoreboard() {
+    if (this.mpScoreboard) {
+      this.mpScoreboard.classList.remove('show');
+    }
+  }
+
+  // ── Multiplayer Turn Banner ──────────────────────────────────
+  showTurnBanner(playerName: string, playerColor: string, frameNum: number) {
+    // Create a temporary banner
+    const banner = document.createElement('div');
+    banner.className = 'turn-banner';
+    banner.innerHTML = `
+      <div class="turn-name" style="color:${playerColor}">${playerName}</div>
+      <div class="turn-subtitle">Frame ${frameNum}</div>
+    `;
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 2200);
+  }
+
+  // ── Multiplayer Game Over ──────────────────────────────────────
+  showMultiplayerGameOver(rankings: { name: string; color: string; score: number; strikes: number; spares: number }[]) {
+    this.hideMultiplayerScoreboard();
+    const panel = document.getElementById('ui-multiplayer-over')!;
+
+    let rankingsHtml = '';
+    const medals = ['🥇', '🥈', '🥉', ''];
+    rankings.forEach((p, i) => {
+      const medal = medals[i] || '';
+      rankingsHtml += `
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 16px;margin:4px 0;
+          background:rgba(0,20,40,${i === 0 ? '0.4' : '0.2'});border-radius:6px;
+          border:1px solid ${i === 0 ? 'rgba(255,215,0,0.4)' : 'rgba(0,255,255,0.15)'}">
+          <span style="font-size:24px">${medal}</span>
+          <span style="color:${p.color};font-weight:bold;font-size:16px;flex:1;text-align:left">${p.name}</span>
+          <span style="color:#00ffff;font-size:24px;font-weight:bold">${p.score}</span>
+          <span style="color:rgba(255,255,255,0.4);font-size:11px">${p.strikes}X ${p.spares}/</span>
+        </div>
+      `;
+    });
+
+    panel.innerHTML = `
+      <div class="ui-section-title">🏆 FINAL STANDINGS</div>
+      ${rankingsHtml}
+      <button class="ui-btn primary" onclick="window.__ui.playAgain()" style="margin-top:16px">▶ PLAY AGAIN</button>
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← MAIN MENU</button>
+    `;
+
+    (window as any).__ui.playAgain = () => this.onPlayAgain();
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-multiplayer-over');
+  }
+
+  // ── Cosmic Event Banner ──────────────────────────────────────
+  showCosmicEventBanner(event: CosmicEvent) {
+    const banner = document.createElement('div');
+    banner.className = 'cosmic-banner';
+    banner.innerHTML = `
+      <div class="cosmic-icon">${event.icon}</div>
+      <div class="cosmic-name">${event.name}</div>
+      <div class="cosmic-desc">${event.description}</div>
+    `;
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 2500);
+  }
+
+  // ── Replay Controls ──────────────────────────────────────────
+  private replaySkipBtn: HTMLButtonElement | null = null;
+
+  showReplayControls() {
+    if (this.replaySkipBtn) this.replaySkipBtn.remove();
+    this.replaySkipBtn = document.createElement('button');
+    this.replaySkipBtn.className = 'replay-skip';
+    this.replaySkipBtn.textContent = '⏭ SKIP REPLAY';
+    this.replaySkipBtn.onclick = () => {
+      this.onSkipReplay();
+      this.hideReplayControls();
+    };
+    document.body.appendChild(this.replaySkipBtn);
+  }
+
+  hideReplayControls() {
+    if (this.replaySkipBtn) {
+      this.replaySkipBtn.remove();
+      this.replaySkipBtn = null;
+    }
+  }
+
+  // ── Ball Unlock Popup ──────────────────────────────────────────
+  showBallUnlockPopup(ballName: string, ballColor: string) {
+    const popup = document.createElement('div');
+    popup.className = 'unlock-popup';
+    popup.innerHTML = `
+      <div class="unlock-icon">🎳</div>
+      <div class="unlock-title">NEW BALL UNLOCKED!</div>
+      <div class="unlock-desc" style="color:${ballColor};font-size:16px;font-weight:bold;margin-top:6px">${ballName}</div>
+    `;
+    document.body.appendChild(popup);
+    setTimeout(() => popup.remove(), 3500);
+  }
+
+  // ── Ball Collection / Unlock Screen ──────────────────────────
+  showBallUnlocks(unlockInfo: { ballType: string; unlocked: boolean; description: string; progress: number }[]) {
+    const panel = document.getElementById('ui-ball-unlocks')!;
+
+    let cardsHtml = '';
+    for (const info of unlockInfo) {
+      const ball = BALL_TYPES[info.ballType];
+      if (!ball) continue;
+      const colorHex = '#' + ball.color.getHexString();
+      const lockedClass = info.unlocked ? '' : ' locked';
+      const statusIcon = info.unlocked ? '✓' : '🔒';
+
+      cardsHtml += `
+        <div class="ball-card${lockedClass}">
+          <div class="ball-color-dot" style="background:${info.unlocked ? colorHex : '#333'}; color:${info.unlocked ? colorHex : '#333'}"></div>
+          <div class="ball-name">${statusIcon} ${ball.name}</div>
+          <div class="ball-desc">${info.description}</div>
+          ${!info.unlocked ? `
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:${info.progress}%"></div>
+            </div>
+            <div style="color:rgba(0,255,255,0.4);font-size:10px;margin-top:2px">${info.progress}%</div>
+          ` : '<div style="color:rgba(0,255,255,0.6);font-size:10px;margin-top:4px">UNLOCKED ✓</div>'}
+        </div>
+      `;
+    }
+
+    if (unlockInfo.length === 0) {
+      cardsHtml = '<div style="color:rgba(255,255,255,0.4);padding:20px">No ball data available</div>';
+    }
+
+    panel.innerHTML = `
+      <div class="ui-section-title">🔓 BALL COLLECTION</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:12px;margin-bottom:12px">
+        Unlock new balls by playing and achieving milestones
+      </div>
+      <div class="ball-grid">${cardsHtml}</div>
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
+    `;
+
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-ball-unlocks');
   }
 }

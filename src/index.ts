@@ -24,6 +24,10 @@ import { StatisticsTracker, GameRecord } from './statistics';
 import { TutorialManager } from './tutorial';
 import { LaneEffects } from './laneeffects';
 import { NeighboringLanes } from './neighbors';
+import { MultiplayerManager } from './multiplayer';
+import { CosmicBowlingManager } from './cosmic';
+import { ReplayManager } from './replay';
+import { BallUnlockManager } from './unlocks';
 
 // ── Bootstrap ──────────────────────────────────────────────────
 const container = document.getElementById('scene-container') as HTMLDivElement;
@@ -42,7 +46,7 @@ const world = await World.create(container, {
 } as any);
 
 // ── Systems Init ───────────────────────────────────────────────
-const gameManager = new GameManager();
+let gameManager = new GameManager();
 let currentTheme = 'neon_circuit';
 const themeColors = THEMES[currentTheme];
 
@@ -77,6 +81,14 @@ world.scene.add(laneEffects.group);
 const neighbors = new NeighboringLanes(themeColors.primary, themeColors.secondary);
 world.scene.add(neighbors.group);
 
+// New round 3 systems
+const multiplayer = new MultiplayerManager();
+const cosmic = new CosmicBowlingManager();
+world.scene.add(cosmic.group);
+const replay = new ReplayManager();
+world.scene.add(replay.group);
+const ballUnlocks = new BallUnlockManager();
+
 // Canvas for browser input
 const canvas = container.querySelector('canvas') as HTMLCanvasElement;
 const xrInput = new XRInputHandler(world);
@@ -98,6 +110,9 @@ let gutterEventFired = false;
 let challengeActive = false;
 let practiceActive = false;
 let tutorialShownThisSession = false;
+let multiplayerActive = false;
+let cosmicActive = false;
+let replayPlaying = false;
 
 // ── Helper: apply theme ────────────────────────────────────────
 function applyTheme(themeName: string) {
@@ -132,16 +147,25 @@ function prepareForRoll() {
 function throwBall(velocity: Vector3) {
   if (gameManager.state !== GameState.AIMING && gameManager.state !== GameState.THROWING) return;
 
-  ball.throw(velocity);
+  // Apply cosmic modifiers if active
+  let finalVelocity = velocity;
+  if (cosmicActive && cosmic.active) {
+    finalVelocity = cosmic.modifyThrowVelocity(velocity);
+  }
+
+  ball.throw(finalVelocity);
   ballThrown = true;
   gameManager.setState(GameState.BALL_ROLLING);
   aimIndicator.hide();
   laneEffects.activateSpeedStrips();
   laneEffects.clearArrowHighlights();
 
+  // Start replay recording
+  replay.startRecording();
+
   audio.init().then(() => {
     audio.startRollingSound();
-    audio.playThrowWhoosh(velocity.length());
+    audio.playThrowWhoosh(finalVelocity.length());
   });
 
   hud.hidePowerBar();
@@ -153,6 +177,9 @@ function throwBall(velocity: Vector3) {
 // ── Helper: handle roll result ─────────────────────────────────
 function handleRollResult(pinsDown: number) {
   const result = gameManager.recordRoll(pinsDown);
+
+  // Stop replay recording and check if it qualifies
+  const qualifiesForReplay = replay.stopRecording(pinsDown);
 
   // Audio and effects
   audio.init().then(() => {
@@ -199,18 +226,112 @@ function handleRollResult(pinsDown: number) {
   hud.updateScorecard(gameManager.frames, gameManager.currentFrame);
   hud.updateTotal(gameManager.totalScore);
 
+  // Check for replay on strike/spare
+  if (qualifiesForReplay && (result.isStrike || result.isSpare)) {
+    // Play replay before transitioning
+    replayPlaying = true;
+    ui.showReplayControls();
+    replay.startPlayback(
+      (_pos, _lookAt) => {
+        // Camera updates handled by replay system — in non-XR we could move camera
+      },
+      () => {
+        // Replay done
+        replayPlaying = false;
+        ui.hideReplayControls();
+        proceedAfterRoll(result);
+      },
+    );
+    return; // Don't proceed until replay is done
+  }
+
+  proceedAfterRoll(result);
+}
+
+function proceedAfterRoll(result: { pinsDown: number; isStrike: boolean; isSpare: boolean; frameComplete: boolean; gameOver: boolean }) {
   if (result.gameOver) {
-    // Game complete
-    gameManager.setState(GameState.SCORE_DISPLAY);
-    scoreDisplayTimer = 3;
+    if (multiplayerActive) {
+      // In multiplayer, check if all players are done
+      handleMultiplayerTurnEnd();
+    } else {
+      gameManager.setState(GameState.SCORE_DISPLAY);
+      scoreDisplayTimer = 3;
+    }
   } else if (result.frameComplete) {
-    // Frame complete, transition
-    gameManager.setState(GameState.FRAME_TRANSITION);
-    frameTransitionTimer = 1.5;
+    if (multiplayerActive) {
+      // Switch to next player
+      handleMultiplayerTurnEnd();
+    } else {
+      gameManager.setState(GameState.FRAME_TRANSITION);
+      frameTransitionTimer = 1.5;
+    }
   } else {
-    // Same frame, second roll — just clear fallen pins and re-aim
+    // Same frame, second roll
     gameManager.setState(GameState.FRAME_TRANSITION);
     frameTransitionTimer = 1.0;
+  }
+}
+
+// ── Helper: handle multiplayer turn end ────────────────────────
+function handleMultiplayerTurnEnd() {
+  const currentGM = multiplayer.getCurrentGameManager();
+  if (!currentGM) return;
+
+  const { nextPlayer, allDone } = multiplayer.advanceTurn();
+
+  // Update scoreboard
+  ui.showMultiplayerScoreboard(multiplayer.getScoreboard());
+
+  if (allDone) {
+    // All players finished
+    const rankings = multiplayer.getRankings();
+    const rankingData = rankings.map(p => ({
+      name: p.config.name,
+      color: '#' + p.config.color.getHexString(),
+      score: p.totalScore,
+      strikes: p.stats.strikes,
+      spares: p.stats.spares,
+    }));
+
+    // Record ball unlock progress for each player
+    for (const p of multiplayer.players) {
+      ballUnlocks.recordGameComplete(p.totalScore, p.stats.strikes, p.stats.spares, p.stats.maxStreak);
+    }
+
+    audio.stopAmbientMusic();
+    audio.stopRollingSound();
+    hud.hide();
+    ui.showMultiplayerGameOver(rankingData);
+    multiplayerActive = false;
+    gameManager.setState(GameState.GAME_OVER);
+    return;
+  }
+
+  if (nextPlayer) {
+    // Switch to next player
+    gameManager = nextPlayer.gameManager;
+
+    // Show turn banner
+    ui.showTurnBanner(
+      nextPlayer.config.name,
+      '#' + nextPlayer.config.color.getHexString(),
+      gameManager.currentFrame + 1,
+    );
+
+    // Update ball for this player
+    ball.setBallType(nextPlayer.config.ballType);
+
+    // Roll cosmic event if cosmic mode is active and it's a new frame
+    if (cosmicActive && cosmic.active) {
+      const event = cosmic.rollEvent();
+      ui.showCosmicEventBanner(event);
+    }
+
+    // Prepare for roll after brief delay
+    setTimeout(() => {
+      pinManager.resetPins();
+      prepareForRoll();
+    }, 2200);
   }
 }
 
@@ -248,6 +369,14 @@ function endGame() {
   achievements.recordGameComplete(score, stats);
   achievements.recordBallUsed(gameManager.ballType);
   achievements.recordThemePlayed(currentTheme);
+
+  // Ball unlock progress
+  ballUnlocks.recordGameComplete(score, stats.strikes, stats.spares, stats.maxStreak);
+  if (cosmicActive) {
+    ballUnlocks.recordCosmicGamePlayed();
+    cosmic.stop();
+    cosmicActive = false;
+  }
 
   // Show game over screen
   hud.hide();
@@ -343,6 +472,11 @@ ui.onQuit = () => {
   laneEffects.deactivateSpeedStrips();
   practiceActive = false;
   practiceManager.stop();
+  multiplayerActive = false;
+  multiplayer.stop();
+  cosmicActive = false;
+  cosmic.stop();
+  ui.hideMultiplayerScoreboard();
   hud.hide();
   ui.showTitleScreen();
   gameManager.setState(GameState.TITLE);
@@ -366,6 +500,72 @@ ui.onShowTutorial = () => {
   });
 };
 
+// ── Wire up Multiplayer ────────────────────────────────────────
+ui.onStartMultiplayer = (playerCount: number, names: string[]) => {
+  multiplayerActive = true;
+  multiplayer.start(playerCount, names);
+
+  const firstPlayer = multiplayer.getCurrentPlayer()!;
+  gameManager = firstPlayer.gameManager;
+  ball.setBallType(firstPlayer.config.ballType);
+
+  ui.hideAll();
+  hud.show();
+  ui.showMultiplayerScoreboard(multiplayer.getScoreboard());
+
+  // Show first player banner
+  ui.showTurnBanner(
+    firstPlayer.config.name,
+    '#' + firstPlayer.config.color.getHexString(),
+    1,
+  );
+
+  audio.init().then(() => {
+    audio.startAmbientMusic();
+    audio.playLaneHum();
+  });
+
+  pinManager.resetPins();
+  setTimeout(() => prepareForRoll(), 2200);
+};
+
+// ── Wire up Cosmic Bowling ─────────────────────────────────────
+ui.onStartCosmicBowling = () => {
+  cosmicActive = true;
+  cosmic.start();
+
+  // Roll first event
+  const event = cosmic.rollEvent();
+  ui.showCosmicEventBanner(event);
+
+  // Start normal game flow
+  startGame();
+};
+
+cosmic.onEventBanner((event) => {
+  ui.showCosmicEventBanner(event);
+});
+
+// ── Wire up Replay ─────────────────────────────────────────────
+ui.onSkipReplay = () => {
+  replay.skipPlayback();
+};
+
+// ── Wire up Ball Unlocks ───────────────────────────────────────
+ballUnlocks.onUnlock((ballType, _condition) => {
+  const ball = BALL_TYPES[ballType];
+  if (ball) {
+    ui.showBallUnlockPopup(ball.name, '#' + ball.color.getHexString());
+    effects.playAchievementEffect();
+    audio.init().then(() => audio.playAchievementUnlock());
+  }
+});
+
+// Update showUnlocks to pass data
+ui.onShowUnlocks = () => {
+  ui.showBallUnlocks(ballUnlocks.getUnlockInfo());
+};
+
 // ── Wire up challenges ─────────────────────────────────────────
 ui.onStartChallenge = (type: ChallengeType) => {
   challengeManager.startChallenge(type);
@@ -378,6 +578,9 @@ challengeManager.onChallengeComplete = (success, stats) => {
   hud.hide();
   audio.stopAmbientMusic();
   audio.stopRollingSound();
+  if (success) {
+    ballUnlocks.recordChallengeComplete();
+  }
   ui.showChallengeResult(success, challengeManager.currentChallenge?.name || '', stats);
   gameManager.setState(GameState.GAME_OVER);
 };
@@ -551,6 +754,23 @@ function gameLoop() {
   if (state === GameState.BALL_ROLLING) {
     const ballResult = ball.update(dt);
 
+    // Apply cosmic physics effects
+    if (cosmicActive && cosmic.active) {
+      cosmic.applyFramePhysics(ball.position, ball.velocity, dt);
+
+      // Bumper bounce check
+      const halfLane = LANE.LANE_WIDTH / 2;
+      if (cosmic.checkBumperBounce(ball.position.x, halfLane)) {
+        ball.velocity.x *= -0.7;
+        ball.position.x = Math.sign(ball.position.x) * (halfLane - 0.01);
+        ball.inGutter = false;
+        ball.state = BallState.ROLLING;
+      }
+    }
+
+    // Record replay frame
+    replay.recordFrame(ball.position, ball.velocity, pinsKnockedThisRoll, ball.inGutter);
+
     // Update rolling sound based on speed
     const speed = Math.sqrt(ball.velocity.x ** 2 + ball.velocity.z ** 2);
     audio.updateRollingSound(speed);
@@ -637,6 +857,12 @@ function gameLoop() {
       // Determine if we need full pin reset or just second ball
       const needsReset = gameManager.needsPinReset();
       if (needsReset) {
+        // Roll cosmic event for new frame (non-multiplayer)
+        if (cosmicActive && cosmic.active && !multiplayerActive) {
+          const event = cosmic.rollEvent();
+          ui.showCosmicEventBanner(event);
+        }
+
         pinManager.startSweep(true, () => {
           audio.init().then(() => audio.playSweepSound());
           prepareForRoll();
@@ -663,6 +889,12 @@ function gameLoop() {
   effects.update(dt);
   laneEffects.update(time, dt);
   neighbors.update(time, dt);
+  cosmic.update(time, dt);
+
+  // Update replay if playing
+  if (replayPlaying) {
+    replay.update(dt);
+  }
 
   // Pin physics always need updating for falling animation
   if (state !== GameState.PIN_SETTLING) {
