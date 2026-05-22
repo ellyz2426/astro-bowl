@@ -358,8 +358,17 @@ export class UIManager {
       <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
     `;
 
-    (window as any).__setMusic = (val: string) => {};
-    (window as any).__setSfx = (val: string) => {};
+    (window as any).__setMusic = (val: string) => {
+      const v = parseInt(val) / 100;
+      musicVol = v;
+      // Will be picked up by the app
+      if ((window as any).__onMusicVolChange) (window as any).__onMusicVolChange(v);
+    };
+    (window as any).__setSfx = (val: string) => {
+      const v = parseInt(val) / 100;
+      sfxVol = v;
+      if ((window as any).__onSfxVolChange) (window as any).__onSfxVolChange(v);
+    };
     (window as any).__themeSelect = (key: string) => {
       this.onThemeSelect(key);
       this.showSettings(musicVol, sfxVol, key);

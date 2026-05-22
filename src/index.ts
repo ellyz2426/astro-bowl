@@ -17,6 +17,7 @@ import { XRInputHandler } from './xrinput';
 import { BrowserInputHandler } from './browserinput';
 import { AchievementTracker } from './achievements';
 import { LeaderboardManager } from './leaderboard';
+import { AimIndicator } from './aim';
 
 // ── Bootstrap ──────────────────────────────────────────────────
 const container = document.getElementById('scene-container')!;
@@ -69,6 +70,8 @@ const leaderboard = new LeaderboardManager();
 const canvas = container.querySelector('canvas') as HTMLCanvasElement;
 const xrInput = new XRInputHandler(world);
 const browserInput = canvas ? new BrowserInputHandler(world, canvas) : null;
+const aimIndicator = new AimIndicator(themeColors.primary);
+world.scene.add(aimIndicator.group);
 
 // ── State Variables ────────────────────────────────────────────
 let lastTime = performance.now() / 1000;
@@ -80,6 +83,7 @@ let pinsKnockedThisRoll = 0;
 let isXRSession = false;
 let musicVolume = 0.3;
 let sfxVolume = 0.6;
+let gutterEventFired = false;
 
 // ── Helper: apply theme ────────────────────────────────────────
 function applyTheme(themeName: string) {
@@ -98,6 +102,7 @@ function prepareForRoll() {
   ballThrown = false;
   waitingForSettle = false;
   pinsKnockedThisRoll = 0;
+  gutterEventFired = false;
   hud.hidePowerBar();
 
   // Update HUD
@@ -116,6 +121,7 @@ function throwBall(velocity: Vector3) {
   ball.throw(velocity);
   ballThrown = true;
   gameManager.setState(GameState.BALL_ROLLING);
+  aimIndicator.hide();
 
   audio.init().then(() => {
     audio.startRollingSound();
@@ -322,19 +328,22 @@ if (browserInput) {
     if (gameManager.state === GameState.AIMING) {
       gameManager.setState(GameState.THROWING);
       hud.showPowerBar();
+      aimIndicator.show();
     }
   };
 
   browserInput.onPowerChange = (power: number) => {
     hud.setPower(power);
+    aimIndicator.update(browserInput.getAimX(), power);
   };
 
-  browserInput.onAimChange = (_aimX: number) => {
-    // Could show aim indicator — handled by browser input drag
+  browserInput.onAimChange = (aimX: number) => {
+    aimIndicator.update(aimX, browserInput.getPower());
   };
 
   browserInput.onThrow = (velocity: Vector3) => {
     if (gameManager.state === GameState.THROWING || gameManager.state === GameState.AIMING) {
+      aimIndicator.hide();
       throwBall(velocity);
     }
   };
@@ -367,6 +376,16 @@ if (browserInput) {
     }
   };
 }
+
+// ── Wire up volume controls ────────────────────────────────────
+(window as any).__onMusicVolChange = (v: number) => {
+  musicVolume = v;
+  audio.setMusicVolume(v);
+};
+(window as any).__onSfxVolChange = (v: number) => {
+  sfxVolume = v;
+  audio.setSFXVolume(v);
+};
 
 // ── Fog ────────────────────────────────────────────────────────
 import { Fog } from '@iwsdk/core';
@@ -412,14 +431,13 @@ function gameLoop() {
     const speed = Math.sqrt(ball.velocity.x ** 2 + ball.velocity.z ** 2);
     audio.updateRollingSound(speed);
 
-    // Gutter event
-    if (ballResult.inGutter && ball.state === BallState.IN_GUTTER) {
-      if (!ball.inGutter) {
-        audio.init().then(() => {
-          audio.playGutterThud();
-        });
-        effects.playGutterEffect(ball.position.clone());
-      }
+    // Gutter event (detect transition into gutter)
+    if (ballResult.inGutter && !gutterEventFired) {
+      gutterEventFired = true;
+      audio.init().then(() => {
+        audio.playGutterThud();
+      });
+      effects.playGutterEffect(ball.position.clone());
     }
 
     // Ball reached pin area — apply collision
