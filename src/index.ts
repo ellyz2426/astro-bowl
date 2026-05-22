@@ -18,6 +18,7 @@ import { BrowserInputHandler } from './browserinput';
 import { AchievementTracker } from './achievements';
 import { LeaderboardManager } from './leaderboard';
 import { AimIndicator } from './aim';
+import { ChallengeManager, ChallengeType } from './challenges';
 
 // ── Bootstrap ──────────────────────────────────────────────────
 const container = document.getElementById('scene-container')!;
@@ -65,6 +66,7 @@ const hud = new HUDManager();
 const ui = new UIManager();
 const achievements = new AchievementTracker();
 const leaderboard = new LeaderboardManager();
+const challengeManager = new ChallengeManager();
 
 // Canvas for browser input
 const canvas = container.querySelector('canvas') as HTMLCanvasElement;
@@ -84,6 +86,7 @@ let isXRSession = false;
 let musicVolume = 0.3;
 let sfxVolume = 0.6;
 let gutterEventFired = false;
+let challengeActive = false;
 
 // ── Helper: apply theme ────────────────────────────────────────
 function applyTheme(themeName: string) {
@@ -260,6 +263,22 @@ ui.onShowLeaderboard = () => {
 };
 ui.onShowAchievements = () => {
   ui.showAchievements(achievements.getAll());
+};
+
+// ── Wire up challenges ─────────────────────────────────────────
+ui.onStartChallenge = (type: ChallengeType) => {
+  challengeManager.startChallenge(type);
+  challengeActive = true;
+  startGame(); // Reuse normal game start flow
+};
+
+challengeManager.onChallengeComplete = (success, stats) => {
+  challengeActive = false;
+  hud.hide();
+  audio.stopAmbientMusic();
+  audio.stopRollingSound();
+  ui.showChallengeResult(success, challengeManager.currentChallenge?.name || '', stats);
+  gameManager.setState(GameState.GAME_OVER);
 };
 
 // ── Wire up achievements ───────────────────────────────────────

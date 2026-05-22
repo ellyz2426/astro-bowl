@@ -4,6 +4,7 @@
  */
 import { BALL_TYPES } from './ball';
 import { THEMES } from './environment';
+import { ChallengeType, CHALLENGES } from './challenges';
 
 export class UIManager {
   private overlay: HTMLDivElement;
@@ -17,6 +18,7 @@ export class UIManager {
   onShowAchievements: () => void = () => {};
   onShowSettings: () => void = () => {};
   onPlayAgain: () => void = () => {};
+  onStartChallenge: (type: ChallengeType) => void = () => {};
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -251,6 +253,8 @@ export class UIManager {
       <div class="ui-panel" id="ui-pause"></div>
       <div class="ui-panel" id="ui-leaderboard"></div>
       <div class="ui-panel" id="ui-achievements"></div>
+      <div class="ui-panel" id="ui-challenges"></div>
+      <div class="ui-panel" id="ui-challenge-result"></div>
     `;
     document.body.appendChild(this.overlay);
   }
@@ -277,6 +281,7 @@ export class UIManager {
       <div class="ui-title">ASTRO BOWL</div>
       <div class="ui-subtitle">HOLODECK BOWLING</div>
       <button class="ui-btn primary" onclick="window.__ui.startGame()">▶ START GAME</button>
+      <button class="ui-btn" onclick="window.__ui.showChallenges()">🏅 CHALLENGES</button>
       <button class="ui-btn" onclick="window.__ui.showBallSelect()">🎳 BALL SELECT</button>
       <button class="ui-btn" onclick="window.__ui.showSettings()">⚙ SETTINGS</button>
       <button class="ui-btn" onclick="window.__ui.showLeaderboard()">🏆 LEADERBOARD</button>
@@ -293,6 +298,7 @@ export class UIManager {
       showSettings: () => this.showSettings(0.3, 0.6, 'neon_circuit'),
       showLeaderboard: () => this.onShowLeaderboard(),
       showAchievements: () => this.onShowAchievements(),
+      showChallenges: () => this.showChallenges(),
     };
     this.showPanel('ui-title-screen');
   }
@@ -464,5 +470,51 @@ export class UIManager {
     `;
     (window as any).__ui.backToTitle = () => this.showTitleScreen();
     this.showPanel('ui-achievements');
+  }
+
+  showChallenges(bestScores: Record<string, number> = {}) {
+    const panel = document.getElementById('ui-challenges')!;
+    let cardsHtml = '';
+    for (const [key, challenge] of Object.entries(CHALLENGES)) {
+      const best = bestScores[key];
+      const bestStr = best !== undefined ? `Best: ${best}/${challenge.frames}` : 'Not attempted';
+      cardsHtml += `
+        <div class="ball-card" onclick="window.__startChallenge('${key}')">
+          <div class="ball-name">${challenge.name}</div>
+          <div class="ball-desc">${challenge.description}</div>
+          <div class="ball-desc" style="color:rgba(0,255,255,0.5);margin-top:4px">${bestStr}</div>
+        </div>
+      `;
+    }
+
+    panel.innerHTML = `
+      <div class="ui-section-title">🏅 CHALLENGES</div>
+      <div class="ball-grid">${cardsHtml}</div>
+      <button class="ui-btn" onclick="window.__ui.backToTitle()">← BACK</button>
+    `;
+
+    (window as any).__startChallenge = (type: string) => {
+      this.onStartChallenge(type as ChallengeType);
+    };
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-challenges');
+  }
+
+  showChallengeResult(success: boolean, challengeName: string, stats: { successes: number; total: number; time: number }) {
+    const panel = document.getElementById('ui-challenge-result')!;
+    const emoji = success ? '🏆' : '💪';
+    const msg = success ? 'CHALLENGE COMPLETE!' : 'KEEP TRYING!';
+    const timeStr = stats.time > 0 ? `<div class="stat-row"><span>Time</span><span class="stat-value">${Math.floor(stats.time)}s</span></div>` : '';
+
+    panel.innerHTML = `
+      <div class="ui-section-title">${emoji} ${msg}</div>
+      <div style="font-size:20px;color:#ffffff;margin-bottom:16px">${challengeName}</div>
+      <div class="stat-row"><span>Successes</span><span class="stat-value">${stats.successes} / ${stats.total}</span></div>
+      ${timeStr}
+      <button class="ui-btn primary" onclick="window.__ui.backToTitle()">← MAIN MENU</button>
+    `;
+
+    (window as any).__ui.backToTitle = () => this.showTitleScreen();
+    this.showPanel('ui-challenge-result');
   }
 }
